@@ -267,6 +267,7 @@ router.get("/coach/:coachId/activity", auth("coach"), (req, res) => {
     const rows = db.prepare(`
       SELECT
         el.id, el.logged_at, el.completed,
+        el.client_id,
         u.full_name AS client_name,
         e.name AS exercise_name,
         wd.day_label
