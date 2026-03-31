@@ -101,7 +101,7 @@ async function runMigrateAndSeed() {
     db.prepare("INSERT INTO workout_plans VALUES (?,?,?,?,1,?,?,?)").run(planId,cid,coachId,`${cd.name.split(" ")[0]}'s Plan`,null,now,now);
     for (let di=0; di<cd.days.length; di++) {
       const day=cd.days[di]; const dayId=uuid();
-      db.prepare("INSERT INTO workout_days VALUES (?,?,?,?,?)").run(dayId,planId,day.l,day.f,di);
+      db.prepare("INSERT INTO workout_days VALUES (?,?,?,?,?,?)").run(dayId,planId,day.l,day.f,di,1);
       for (let ei=0; ei<day.ex.length; ei++) {
         const ex=day.ex[ei];
         db.prepare("INSERT INTO exercises VALUES (?,?,?,?,?,?,?,?)").run(uuid(),dayId,ex.n,ex.s,ex.r,ex.no||null,ex.v||null,ei);
@@ -125,7 +125,7 @@ async function runMigrations() {
     CREATE TABLE IF NOT EXISTS clients (id TEXT PRIMARY KEY, coach_id TEXT NOT NULL, age INTEGER, height_cm REAL, weight_kg REAL, goal TEXT, progress_pct INTEGER DEFAULT 0, avatar_initials TEXT, created_at TEXT NOT NULL DEFAULT (datetime('now')), updated_at TEXT NOT NULL DEFAULT (datetime('now')));
     CREATE TABLE IF NOT EXISTS weight_logs (id TEXT PRIMARY KEY, client_id TEXT NOT NULL, weight_kg REAL NOT NULL, logged_at TEXT NOT NULL DEFAULT (datetime('now')), note TEXT);
     CREATE TABLE IF NOT EXISTS workout_plans (id TEXT PRIMARY KEY, client_id TEXT NOT NULL, coach_id TEXT NOT NULL, name TEXT NOT NULL DEFAULT 'Training Plan', is_active INTEGER NOT NULL DEFAULT 1, template_id TEXT, created_at TEXT NOT NULL DEFAULT (datetime('now')), updated_at TEXT NOT NULL DEFAULT (datetime('now')));
-    CREATE TABLE IF NOT EXISTS workout_days (id TEXT PRIMARY KEY, plan_id TEXT NOT NULL, day_label TEXT NOT NULL, day_focus TEXT, sort_order INTEGER NOT NULL DEFAULT 0);
+    CREATE TABLE IF NOT EXISTS workout_days (id TEXT PRIMARY KEY, plan_id TEXT NOT NULL, day_label TEXT NOT NULL, day_focus TEXT, sort_order INTEGER NOT NULL DEFAULT 0, week_number INTEGER NOT NULL DEFAULT 1);
     CREATE TABLE IF NOT EXISTS exercises (id TEXT PRIMARY KEY, day_id TEXT NOT NULL, name TEXT NOT NULL, sets INTEGER NOT NULL DEFAULT 3, reps TEXT NOT NULL DEFAULT '10', notes TEXT, video_url TEXT, sort_order INTEGER NOT NULL DEFAULT 0);
     CREATE TABLE IF NOT EXISTS exercise_logs (id TEXT PRIMARY KEY, exercise_id TEXT NOT NULL, client_id TEXT NOT NULL, completed INTEGER NOT NULL DEFAULT 1, logged_at TEXT NOT NULL DEFAULT (datetime('now')));
     CREATE TABLE IF NOT EXISTS nutrition_plans (id TEXT PRIMARY KEY, client_id TEXT NOT NULL, coach_id TEXT NOT NULL, name TEXT NOT NULL DEFAULT 'Nutrition Plan', calories INTEGER NOT NULL DEFAULT 2000, protein_g INTEGER NOT NULL DEFAULT 150, carbs_g INTEGER NOT NULL DEFAULT 200, fats_g INTEGER NOT NULL DEFAULT 65, is_active INTEGER NOT NULL DEFAULT 1, template_id TEXT, created_at TEXT NOT NULL DEFAULT (datetime('now')), updated_at TEXT NOT NULL DEFAULT (datetime('now')));

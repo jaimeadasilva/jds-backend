@@ -114,14 +114,14 @@ router.delete("/plans/:planId", auth("coach"), (req, res) => {
 // ─── POST /api/workouts/plans/:planId/days ────────────────────────────────────
 router.post("/plans/:planId/days", auth("coach"), (req, res) => {
   try {
-    const { dayLabel, dayFocus } = req.body;
+    const { dayLabel, dayFocus, weekNumber = 1 } = req.body;
     if (!dayLabel) return badRequest(res, "dayLabel is required.");
 
     const maxOrder = db.prepare("SELECT MAX(sort_order) as m FROM workout_days WHERE plan_id = ?").get(req.params.planId)?.m ?? -1;
     const dayId    = uuid();
 
     db.prepare(
-      "INSERT INTO workout_days (id, plan_id, day_label, day_focus, sort_order) VALUES (?, ?, ?, ?, ?)"
+      "INSERT INTO workout_days (id, plan_id, day_label, day_focus, sort_order, week_number) VALUES (?, ?, ?, ?, ?, ?)"
     ).run(dayId, req.params.planId, dayLabel, dayFocus || null, maxOrder + 1);
 
     const day = db.prepare("SELECT * FROM workout_days WHERE id = ?").get(dayId);
