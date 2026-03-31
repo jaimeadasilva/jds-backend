@@ -58,7 +58,8 @@ router.post("/", auth("coach"), (req, res) => {
   try {
     const { email, password = "Client123!", fullName, age, heightCm, weightKg, goal } = req.body;
     if (!email || !fullName) return badRequest(res, "email and fullName are required.");
-    if (!["Fat Loss", "Muscle Gain", "Maintenance"].includes(goal)) {
+    const safeGoal = goal || "Fat Loss";
+    if (goal && !["Fat Loss", "Muscle Gain", "Maintenance"].includes(goal)) {
       return badRequest(res, "goal must be 'Fat Loss', 'Muscle Gain', or 'Maintenance'.");
     }
 
@@ -78,7 +79,7 @@ router.post("/", auth("coach"), (req, res) => {
       db.prepare(`
         INSERT INTO clients (id, coach_id, age, height_cm, weight_kg, goal, progress_pct, avatar_initials, created_at, updated_at)
         VALUES (?, ?, ?, ?, ?, ?, 0, ?, ?, ?)
-      `).run(userId, req.user.userId, age || null, heightCm || null, weightKg || null, goal, avatar, ts, ts);
+      `).run(userId, req.user.userId, age || null, heightCm || null, weightKg || null, safeGoal, avatar, ts, ts);
 
       // Log initial weight if provided
       if (weightKg) {
