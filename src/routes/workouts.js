@@ -259,3 +259,26 @@ router.get("/client/:clientId/logs", auth(), (req, res) => {
 });
 
 module.exports = router;
+
+// ─── GET /api/workouts/coach/:coachId/activity ────────────────────────────────
+// Returns recent exercise completions across all coach's clients
+router.get("/coach/:coachId/activity", auth("coach"), (req, res) => {
+  try {
+    const rows = db.prepare(`
+      SELECT
+        el.id, el.logged_at, el.completed,
+        u.full_name AS client_name,
+        e.name AS exercise_name,
+        wd.day_label
+      FROM exercise_logs el
+      JOIN clients c   ON c.id = el.client_id
+      JOIN users u     ON u.id = c.id
+      JOIN exercises e ON e.id = el.exercise_id
+      JOIN workout_days wd ON wd.id = e.day_id
+      WHERE c.coach_id = ? AND el.completed = 1
+      ORDER BY el.logged_at DESC
+      LIMIT 20
+    `).all(req.params.coachId);
+    ok(res, rows, { total: rows.length });
+  } catch (err) { serverError(res, err, "GET /workouts/coach/:coachId/activity"); }
+});
