@@ -166,6 +166,18 @@ async function migrate() {
       focus TEXT,
       created_at TEXT NOT NULL
     )`,
+    `CREATE TABLE IF NOT EXISTS template_exercises (
+      id TEXT PRIMARY KEY,
+      template_id TEXT NOT NULL REFERENCES templates_workout(id) ON DELETE CASCADE,
+      name TEXT NOT NULL,
+      sets INTEGER NOT NULL DEFAULT 3,
+      reps TEXT NOT NULL DEFAULT '10',
+      tempo TEXT,
+      notes TEXT,
+      video_url TEXT,
+      sort_order INTEGER NOT NULL DEFAULT 0
+    )`,
+    `CREATE INDEX IF NOT EXISTS idx_template_exercises ON template_exercises(template_id)`,
     `CREATE TABLE IF NOT EXISTS templates_nutrition (
       id TEXT PRIMARY KEY,
       coach_id TEXT NOT NULL,
