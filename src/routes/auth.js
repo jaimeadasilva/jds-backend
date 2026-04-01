@@ -18,12 +18,12 @@ const auth    = require("../middleware/auth");
 const { ok, created, badRequest, notFound, conflict, serverError } = require("../utils/respond");
 
 // ─── POST /api/auth/login ─────────────────────────────────────────────────────
-router.post("/login", (req, res) => {
+router.post("/login", async (req, res) => {
   try {
     const { email, password } = req.body;
     if (!email || !password) return badRequest(res, "Email and password are required.");
 
-    const user = db.prepare("SELECT * FROM users WHERE email = ?").get(email.toLowerCase().trim());
+    const user = await db.prepare("SELECT * FROM users WHERE email = ?").get(email.toLowerCase().trim());
     if (!user) return res.status(401).json({ error: "Invalid credentials." });
 
     const valid = bcrypt.compareSync(password, user.password_hash);
@@ -35,7 +35,7 @@ router.post("/login", (req, res) => {
     // If client, also fetch client profile
     let clientProfile = null;
     if (user.role === "client") {
-      clientProfile = db.prepare("SELECT * FROM clients WHERE id = ?").get(user.id);
+      clientProfile = await db.prepare("SELECT * FROM clients WHERE id = ?").get(user.id);
     }
 
     return ok(res, {
@@ -50,7 +50,7 @@ router.post("/login", (req, res) => {
 
 // ─── POST /api/auth/register ──────────────────────────────────────────────────
 // In production, restrict this to existing coaches or an admin secret.
-router.post("/register", (req, res) => {
+router.post("/register", async (req, res) => {
   try {
     const { email, password, fullName, role = "coach", adminSecret } = req.body;
 
@@ -63,14 +63,14 @@ router.post("/register", (req, res) => {
     if (!["coach", "client"].includes(role)) return badRequest(res, "role must be 'coach' or 'client'.");
     if (password.length < 8) return badRequest(res, "Password must be at least 8 characters.");
 
-    const exists = db.prepare("SELECT id FROM users WHERE email = ?").get(email.toLowerCase().trim());
+    const exists = await db.prepare("SELECT id FROM users WHERE email = ?").get(email.toLowerCase().trim());
     if (exists) return conflict(res, "Email already registered.");
 
     const userId = uuid();
     const hash   = bcrypt.hashSync(password, 10);
     const ts     = new Date().toISOString();
 
-    db.prepare(`
+    await db.prepare(`
       INSERT INTO users (id, email, password_hash, role, full_name, created_at, updated_at)
       VALUES (?, ?, ?, ?, ?, ?, ?)
     `).run(userId, email.toLowerCase().trim(), hash, role, fullName, ts, ts);
@@ -88,14 +88,14 @@ router.post("/register", (req, res) => {
 });
 
 // ─── GET /api/auth/me ─────────────────────────────────────────────────────────
-router.get("/me", auth(), (req, res) => {
+router.get("/me", auth(), async (req, res) => {
   try {
-    const user = db.prepare("SELECT id, email, role, full_name, created_at FROM users WHERE id = ?").get(req.user.userId);
+    const user = await db.prepare("SELECT id, email, role, full_name, created_at FROM users WHERE id = ?").get(req.user.userId);
     if (!user) return notFound(res, "User");
 
     let clientProfile = null;
     if (user.role === "client") {
-      clientProfile = db.prepare("SELECT * FROM clients WHERE id = ?").get(user.id);
+      clientProfile = await db.prepare("SELECT * FROM clients WHERE id = ?").get(user.id);
     }
 
     ok(res, { user, clientProfile });
@@ -105,19 +105,19 @@ router.get("/me", auth(), (req, res) => {
 });
 
 // ─── POST /api/auth/change-password ───────────────────────────────────────────
-router.post("/change-password", auth(), (req, res) => {
+router.post("/change-password", auth(), async (req, res) => {
   try {
     const { currentPassword, newPassword } = req.body;
     if (!currentPassword || !newPassword) return badRequest(res, "currentPassword and newPassword required.");
     if (newPassword.length < 8) return badRequest(res, "New password must be at least 8 characters.");
 
-    const user = db.prepare("SELECT * FROM users WHERE id = ?").get(req.user.userId);
+    const user = await db.prepare("SELECT * FROM users WHERE id = ?").get(req.user.userId);
     if (!bcrypt.compareSync(currentPassword, user.password_hash)) {
       return res.status(401).json({ error: "Current password incorrect." });
     }
 
     const newHash = bcrypt.hashSync(newPassword, 10);
-    db.prepare("UPDATE users SET password_hash = ?, updated_at = ? WHERE id = ?")
+    await db.prepare("UPDATE users SET password_hash = ?, updated_at = ? WHERE id = ?")
       .run(newHash, new Date().toISOString(), req.user.userId);
 
     ok(res, { message: "Password updated." });

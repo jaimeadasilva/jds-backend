@@ -41,7 +41,7 @@ const upload = multer({
 });
 
 // ─── POST /api/files/:clientId ────────────────────────────────────────────────
-router.post("/:clientId", auth(), upload.single("file"), (req, res) => {
+router.post("/:clientId", auth(), upload.single("file"), async (req, res) => {
   try {
     if (!req.file) return res.status(400).json({ error: "No valid file provided." });
 
@@ -49,7 +49,7 @@ router.post("/:clientId", auth(), upload.single("file"), (req, res) => {
     const ts     = new Date().toISOString();
     const category = req.body.category || "general";
 
-    db.prepare(`
+    await db.prepare(`
       INSERT INTO files (id, client_id, uploaded_by, filename, original_name, mime_type, size_bytes, category, uploaded_at)
       VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)
     `).run(fileId, req.params.clientId, req.user.userId, req.file.filename, req.file.originalname, req.file.mimetype, req.file.size, category, ts);
@@ -64,9 +64,9 @@ router.post("/:clientId", auth(), upload.single("file"), (req, res) => {
 });
 
 // ─── GET /api/files/:clientId ─────────────────────────────────────────────────
-router.get("/:clientId", auth(), (req, res) => {
+router.get("/:clientId", auth(), async (req, res) => {
   try {
-    const files = db.prepare(
+    const files = await db.prepare(
       "SELECT * FROM files WHERE client_id = ? ORDER BY uploaded_at DESC"
     ).all(req.params.clientId);
     ok(res, files, { total: files.length });
@@ -76,9 +76,9 @@ router.get("/:clientId", auth(), (req, res) => {
 });
 
 // ─── GET /api/files/download/:fileId ──────────────────────────────────────────
-router.get("/download/:fileId", auth(), (req, res) => {
+router.get("/download/:fileId", auth(), async (req, res) => {
   try {
-    const file = db.prepare("SELECT * FROM files WHERE id = ?").get(req.params.fileId);
+    const file = await db.prepare("SELECT * FROM files WHERE id = ?").get(req.params.fileId);
     if (!file) return notFound(res, "File");
 
     const filePath = path.resolve(UPLOAD_DIR, file.filename);
@@ -92,16 +92,16 @@ router.get("/download/:fileId", auth(), (req, res) => {
 });
 
 // ─── DELETE /api/files/:fileId ────────────────────────────────────────────────
-router.delete("/:fileId", auth(), (req, res) => {
+router.delete("/:fileId", auth(), async (req, res) => {
   try {
-    const file = db.prepare("SELECT * FROM files WHERE id = ?").get(req.params.fileId);
+    const file = await db.prepare("SELECT * FROM files WHERE id = ?").get(req.params.fileId);
     if (!file) return notFound(res, "File");
 
     // Delete from disk
     const filePath = path.resolve(UPLOAD_DIR, file.filename);
     if (fs.existsSync(filePath)) fs.unlinkSync(filePath);
 
-    db.prepare("DELETE FROM files WHERE id = ?").run(req.params.fileId);
+    await db.prepare("DELETE FROM files WHERE id = ?").run(req.params.fileId);
     ok(res, { deleted: true });
   } catch (err) {
     serverError(res, err, "DELETE /files/:fileId");

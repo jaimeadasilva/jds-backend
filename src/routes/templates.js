@@ -28,9 +28,9 @@ const { ok, created, badRequest, serverError } = require("../utils/respond");
 // WORKOUT TEMPLATES
 // ──────────────────────────────────────────────────────────────────────────────
 
-router.get("/workout", auth("coach"), (req, res) => {
+router.get("/workout", auth("coach"), async (req, res) => {
   try {
-    const rows = db.prepare(
+    const rows = await db.prepare(
       "SELECT * FROM templates_workout WHERE coach_id = ? ORDER BY created_at DESC"
     ).all(req.user.userId);
     ok(res, rows, { total: rows.length });
@@ -39,40 +39,41 @@ router.get("/workout", auth("coach"), (req, res) => {
   }
 });
 
-router.post("/workout", auth("coach"), (req, res) => {
+router.post("/workout", auth("coach"), async (req, res) => {
   try {
     const { name, days = 3, focus } = req.body;
     if (!name) return badRequest(res, "name is required.");
     const tId = uuid();
     const ts  = new Date().toISOString();
-    db.prepare(
+    await db.prepare(
       "INSERT INTO templates_workout (id, coach_id, name, days, focus, created_at) VALUES (?, ?, ?, ?, ?, ?)"
     ).run(tId, req.user.userId, name, days, focus || null, ts);
-    created(res, db.prepare("SELECT * FROM templates_workout WHERE id = ?").get(tId));
+    created(res, await db.prepare("SELECT * FROM templates_workout WHERE id = ?").get(tId));
   } catch (err) {
     serverError(res, err, "POST /templates/workout");
   }
 });
 
-router.patch("/workout/:id", auth("coach"), (req, res) => {
+router.patch("/workout/:id", auth("coach"), async (req, res) => {
   try {
     const { name, days, focus } = req.body;
-    const u = []; const p = {};
-    if (name  !== undefined) { u.push("name = @name");   p.name  = name; }
-    if (days  !== undefined) { u.push("days = @days");   p.days  = days; }
-    if (focus !== undefined) { u.push("focus = @focus"); p.focus = focus; }
-    if (!u.length) return badRequest(res, "Nothing to update.");
-    p.id = req.params.id;
-    db.prepare(`UPDATE templates_workout SET ${u.join(", ")} WHERE id = @id`).run(p);
-    ok(res, db.prepare("SELECT * FROM templates_workout WHERE id = ?").get(req.params.id));
+    const fields = []; const values = [];
+    if (name  !== undefined) { fields.push("name");  values.push(name); }
+    if (days  !== undefined) { fields.push("days");  values.push(+days); }
+    if (focus !== undefined) { fields.push("focus"); values.push(focus); }
+    if (!fields.length) return badRequest(res, "Nothing to update.");
+    values.push(req.params.id);
+    const setClauses = fields.map((f,i) => `${f} = $${i+1}`).join(", ");
+    await db.prepare(`UPDATE templates_workout SET ${setClauses} WHERE id = $${fields.length+1}`).run(values);
+    ok(res, await db.prepare("SELECT * FROM templates_workout WHERE id = ?").get(req.params.id));
   } catch (err) {
     serverError(res, err, "PATCH /templates/workout/:id");
   }
 });
 
-router.delete("/workout/:id", auth("coach"), (req, res) => {
+router.delete("/workout/:id", auth("coach"), async (req, res) => {
   try {
-    db.prepare("DELETE FROM templates_workout WHERE id = ?").run(req.params.id);
+    await db.prepare("DELETE FROM templates_workout WHERE id = ?").run(req.params.id);
     ok(res, { deleted: true });
   } catch (err) {
     serverError(res, err, "DELETE /templates/workout/:id");
@@ -80,16 +81,16 @@ router.delete("/workout/:id", auth("coach"), (req, res) => {
 });
 
 // Assign workout template → creates a named plan for a client (empty plan, ready to populate)
-router.post("/workout/:id/assign/:clientId", auth("coach"), (req, res) => {
+router.post("/workout/:id/assign/:clientId", auth("coach"), async (req, res) => {
   try {
-    const template = db.prepare("SELECT * FROM templates_workout WHERE id = ?").get(req.params.id);
+    const template = await db.prepare("SELECT * FROM templates_workout WHERE id = ?").get(req.params.id);
     if (!template) return badRequest(res, "Template not found.");
 
     const planId = uuid();
     const ts     = new Date().toISOString();
-    db.prepare(
-      "INSERT INTO workout_plans (id, client_id, coach_id, name, is_active, template_id, created_at, updated_at) VALUES (?, ?, ?, ?, 1, ?, ?, ?)"
-    ).run(planId, req.params.clientId, req.user.userId, template.name, template.id, ts, ts);
+    await db.prepare(
+      "INSERT INTO workout_plans (id, client_id, coach_id, name, is_active, created_at, updated_at) VALUES (?, ?, ?, ?, 1, ?, ?)"
+    ).run(planId, req.params.clientId, req.user.userId, template.name, ts, ts);
 
     created(res, { planId, message: `Plan '${template.name}' created for client.` });
   } catch (err) {
@@ -101,9 +102,9 @@ router.post("/workout/:id/assign/:clientId", auth("coach"), (req, res) => {
 // NUTRITION TEMPLATES
 // ──────────────────────────────────────────────────────────────────────────────
 
-router.get("/nutrition", auth("coach"), (req, res) => {
+router.get("/nutrition", auth("coach"), async (req, res) => {
   try {
-    const rows = db.prepare(
+    const rows = await db.prepare(
       "SELECT * FROM templates_nutrition WHERE coach_id = ? ORDER BY created_at DESC"
     ).all(req.user.userId);
     ok(res, rows, { total: rows.length });
@@ -112,42 +113,43 @@ router.get("/nutrition", auth("coach"), (req, res) => {
   }
 });
 
-router.post("/nutrition", auth("coach"), (req, res) => {
+router.post("/nutrition", auth("coach"), async (req, res) => {
   try {
     const { name, calories = 2000, proteinG = 150, carbsG = 200, fatsG = 65 } = req.body;
     if (!name) return badRequest(res, "name is required.");
     const tId = uuid();
     const ts  = new Date().toISOString();
-    db.prepare(
+    await db.prepare(
       "INSERT INTO templates_nutrition (id, coach_id, name, calories, protein_g, carbs_g, fats_g, created_at) VALUES (?, ?, ?, ?, ?, ?, ?, ?)"
     ).run(tId, req.user.userId, name, calories, proteinG, carbsG, fatsG, ts);
-    created(res, db.prepare("SELECT * FROM templates_nutrition WHERE id = ?").get(tId));
+    created(res, await db.prepare("SELECT * FROM templates_nutrition WHERE id = ?").get(tId));
   } catch (err) {
     serverError(res, err, "POST /templates/nutrition");
   }
 });
 
-router.patch("/nutrition/:id", auth("coach"), (req, res) => {
+router.patch("/nutrition/:id", auth("coach"), async (req, res) => {
   try {
     const { name, calories, proteinG, carbsG, fatsG } = req.body;
-    const u = []; const p = {};
-    if (name     !== undefined) { u.push("name = @name");           p.name     = name; }
-    if (calories !== undefined) { u.push("calories = @calories");   p.calories = calories; }
-    if (proteinG !== undefined) { u.push("protein_g = @proteinG");  p.proteinG = proteinG; }
-    if (carbsG   !== undefined) { u.push("carbs_g = @carbsG");      p.carbsG   = carbsG; }
-    if (fatsG    !== undefined) { u.push("fats_g = @fatsG");        p.fatsG    = fatsG; }
-    if (!u.length) return badRequest(res, "Nothing to update.");
-    p.id = req.params.id;
-    db.prepare(`UPDATE templates_nutrition SET ${u.join(", ")} WHERE id = @id`).run(p);
-    ok(res, db.prepare("SELECT * FROM templates_nutrition WHERE id = ?").get(req.params.id));
+    const fields = []; const values = [];
+    if (name     !== undefined) { fields.push("name");      values.push(name); }
+    if (calories !== undefined) { fields.push("calories");  values.push(+calories); }
+    if (proteinG !== undefined) { fields.push("protein_g"); values.push(+proteinG); }
+    if (carbsG   !== undefined) { fields.push("carbs_g");   values.push(+carbsG); }
+    if (fatsG    !== undefined) { fields.push("fats_g");    values.push(+fatsG); }
+    if (!fields.length) return badRequest(res, "Nothing to update.");
+    values.push(req.params.id);
+    const setClauses = fields.map((f,i) => `${f} = $${i+1}`).join(", ");
+    await db.prepare(`UPDATE templates_nutrition SET ${setClauses} WHERE id = $${fields.length+1}`).run(values);
+    ok(res, await db.prepare("SELECT * FROM templates_nutrition WHERE id = ?").get(req.params.id));
   } catch (err) {
     serverError(res, err, "PATCH /templates/nutrition/:id");
   }
 });
 
-router.delete("/nutrition/:id", auth("coach"), (req, res) => {
+router.delete("/nutrition/:id", auth("coach"), async (req, res) => {
   try {
-    db.prepare("DELETE FROM templates_nutrition WHERE id = ?").run(req.params.id);
+    await db.prepare("DELETE FROM templates_nutrition WHERE id = ?").run(req.params.id);
     ok(res, { deleted: true });
   } catch (err) {
     serverError(res, err, "DELETE /templates/nutrition/:id");
@@ -155,17 +157,17 @@ router.delete("/nutrition/:id", auth("coach"), (req, res) => {
 });
 
 // Assign nutrition template → creates a nutrition plan for a client
-router.post("/nutrition/:id/assign/:clientId", auth("coach"), (req, res) => {
+router.post("/nutrition/:id/assign/:clientId", auth("coach"), async (req, res) => {
   try {
-    const t = db.prepare("SELECT * FROM templates_nutrition WHERE id = ?").get(req.params.id);
+    const t = await db.prepare("SELECT * FROM templates_nutrition WHERE id = ?").get(req.params.id);
     if (!t) return badRequest(res, "Template not found.");
 
     const planId = uuid();
     const ts     = new Date().toISOString();
-    db.prepare(`
+    await db.prepare(`
       INSERT INTO nutrition_plans (id, client_id, coach_id, name, calories, protein_g, carbs_g, fats_g, is_active, template_id, created_at, updated_at)
       VALUES (?, ?, ?, ?, ?, ?, ?, ?, 1, ?, ?, ?)
-    `).run(planId, req.params.clientId, req.user.userId, t.name, t.calories, t.protein_g, t.carbs_g, t.fats_g, t.id, ts, ts);
+    `).run(planId, req.params.clientId, req.user.userId, t.name, t.calories, t.protein_g, t.carbs_g, t.fats_g, ts, ts);
 
     created(res, { planId, message: `Nutrition plan '${t.name}' created for client.` });
   } catch (err) {

@@ -22,10 +22,10 @@ const auth = require("../middleware/auth");
 const { ok, created, badRequest, notFound, serverError } = require("../utils/respond");
 
 // ─── Helpers ──────────────────────────────────────────────────────────────────
-function buildPlanWithMeals(planId) {
-  const plan = db.prepare("SELECT * FROM nutrition_plans WHERE id = ?").get(planId);
+async function buildPlanWithMeals(planId) {
+  const plan = await db.prepare("SELECT * FROM nutrition_plans WHERE id = ?").get(planId);
   if (!plan) return null;
-  plan.meals = db.prepare("SELECT * FROM meals WHERE plan_id = ? ORDER BY sort_order").all(planId);
+  plan.meals = await db.prepare("SELECT * FROM meals WHERE plan_id = ? ORDER BY sort_order").all(planId);
 
   // Computed: total calories planned
   plan.total_planned_calories = plan.meals.reduce((s, m) => s + m.calories, 0);
@@ -35,66 +35,63 @@ function buildPlanWithMeals(planId) {
 }
 
 // ─── GET /api/nutrition/client/:clientId ──────────────────────────────────────
-router.get("/client/:clientId", auth(), (req, res) => {
+router.get("/client/:clientId", auth(), async (req, res) => {
   try {
-    const plan = db.prepare(
+    const plan = await db.prepare(
       "SELECT * FROM nutrition_plans WHERE client_id = ? AND is_active = 1 ORDER BY created_at DESC LIMIT 1"
     ).get(req.params.clientId);
 
     if (!plan) return ok(res, null);
-    ok(res, buildPlanWithMeals(plan.id));
+    ok(res, await buildPlanWithMeals(plan.id));
   } catch (err) {
     serverError(res, err, "GET /nutrition/client/:clientId");
   }
 });
 
 // ─── POST /api/nutrition/client/:clientId ────────────────────────────────────
-router.post("/client/:clientId", auth("coach"), (req, res) => {
+router.post("/client/:clientId", auth("coach"), async (req, res) => {
   try {
     const { name = "Nutrition Plan", calories = 2000, proteinG = 150, carbsG = 200, fatsG = 65 } = req.body;
     const planId = uuid();
     const ts     = new Date().toISOString();
 
-    db.prepare(`
+    await db.prepare(`
       INSERT INTO nutrition_plans (id, client_id, coach_id, name, calories, protein_g, carbs_g, fats_g, is_active, created_at, updated_at)
       VALUES (?, ?, ?, ?, ?, ?, ?, ?, 1, ?, ?)
     `).run(planId, req.params.clientId, req.user.userId, name, calories, proteinG, carbsG, fatsG, ts, ts);
 
-    created(res, buildPlanWithMeals(planId));
+    created(res, await buildPlanWithMeals(planId));
   } catch (err) {
     serverError(res, err, "POST /nutrition/client/:clientId");
   }
 });
 
 // ─── PATCH /api/nutrition/plans/:planId ──────────────────────────────────────
-router.patch("/plans/:planId", auth("coach"), (req, res) => {
+router.patch("/plans/:planId", auth("coach"), async (req, res) => {
   try {
     const { name, calories, proteinG, carbsG, fatsG, isActive } = req.body;
-    const updates = []; const params = {};
-
-    if (name     !== undefined) { updates.push("name = @name");           params.name     = name; }
-    if (calories !== undefined) { updates.push("calories = @calories");   params.calories = calories; }
-    if (proteinG !== undefined) { updates.push("protein_g = @proteinG");  params.proteinG = proteinG; }
-    if (carbsG   !== undefined) { updates.push("carbs_g = @carbsG");      params.carbsG   = carbsG; }
-    if (fatsG    !== undefined) { updates.push("fats_g = @fatsG");        params.fatsG    = fatsG; }
-    if (isActive !== undefined) { updates.push("is_active = @isActive");  params.isActive = isActive ? 1 : 0; }
-
-    if (!updates.length) return badRequest(res, "Nothing to update.");
-    updates.push("updated_at = @ts");
-    params.ts = new Date().toISOString();
-    params.id = req.params.planId;
-
-    db.prepare(`UPDATE nutrition_plans SET ${updates.join(", ")} WHERE id = @id`).run(params);
-    ok(res, buildPlanWithMeals(req.params.planId));
+    const fields = []; const values = [];
+    if (name     !== undefined) { fields.push("name");       values.push(name); }
+    if (calories !== undefined) { fields.push("calories");   values.push(+calories); }
+    if (proteinG !== undefined) { fields.push("protein_g");  values.push(+proteinG); }
+    if (carbsG   !== undefined) { fields.push("carbs_g");    values.push(+carbsG); }
+    if (fatsG    !== undefined) { fields.push("fats_g");     values.push(+fatsG); }
+    if (isActive !== undefined) { fields.push("is_active");  values.push(isActive ? 1 : 0); }
+    if (!fields.length) return badRequest(res, "Nothing to update.");
+    fields.push("updated_at"); values.push(new Date().toISOString());
+    values.push(req.params.planId);
+    const setClauses = fields.map((f, i) => `${f} = $${i+1}`).join(", ");
+    await db.prepare(`UPDATE nutrition_plans SET ${setClauses} WHERE id = $${fields.length + 1}`).run(values);
+    ok(res, await buildPlanWithMeals(req.params.planId));
   } catch (err) {
     serverError(res, err, "PATCH /nutrition/plans/:planId");
   }
 });
 
 // ─── DELETE /api/nutrition/plans/:planId ──────────────────────────────────────
-router.delete("/plans/:planId", auth("coach"), (req, res) => {
+router.delete("/plans/:planId", auth("coach"), async (req, res) => {
   try {
-    db.prepare("DELETE FROM nutrition_plans WHERE id = ?").run(req.params.planId);
+    await db.prepare("DELETE FROM nutrition_plans WHERE id = ?").run(req.params.planId);
     ok(res, { deleted: true });
   } catch (err) {
     serverError(res, err, "DELETE /nutrition/plans/:planId");
@@ -102,53 +99,53 @@ router.delete("/plans/:planId", auth("coach"), (req, res) => {
 });
 
 // ─── POST /api/nutrition/plans/:planId/meals ─────────────────────────────────
-router.post("/plans/:planId/meals", auth("coach"), (req, res) => {
+router.post("/plans/:planId/meals", auth("coach"), async (req, res) => {
   try {
     const { name, icon = "🍽️", foods, calories = 0, proteinG = 0, carbsG = 0, fatsG = 0 } = req.body;
     if (!name) return badRequest(res, "name is required.");
 
-    const maxOrder = db.prepare("SELECT MAX(sort_order) as m FROM meals WHERE plan_id = ?").get(req.params.planId)?.m ?? -1;
+    const maxOrderRow = await db.prepare("SELECT MAX(sort_order) as m FROM meals WHERE plan_id = ?").get(req.params.planId);
+    const maxOrder = (maxOrderRow?.m ?? -1);
     const mealId   = uuid();
 
-    db.prepare(`
+    await db.prepare(`
       INSERT INTO meals (id, plan_id, name, icon, foods, calories, protein_g, carbs_g, fats_g, sort_order)
       VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
     `).run(mealId, req.params.planId, name, icon, foods || null, calories, proteinG, carbsG, fatsG, maxOrder + 1);
 
-    created(res, db.prepare("SELECT * FROM meals WHERE id = ?").get(mealId));
+    created(res, await db.prepare("SELECT * FROM meals WHERE id = ?").get(mealId));
   } catch (err) {
     serverError(res, err, "POST /nutrition/plans/:planId/meals");
   }
 });
 
 // ─── PATCH /api/nutrition/meals/:mealId ───────────────────────────────────────
-router.patch("/meals/:mealId", auth("coach"), (req, res) => {
+router.patch("/meals/:mealId", auth("coach"), async (req, res) => {
   try {
     const { name, icon, foods, calories, proteinG, carbsG, fatsG, sortOrder } = req.body;
-    const updates = []; const params = {};
-
-    if (name      !== undefined) { updates.push("name = @name");           params.name      = name; }
-    if (icon      !== undefined) { updates.push("icon = @icon");           params.icon      = icon; }
-    if (foods     !== undefined) { updates.push("foods = @foods");         params.foods     = foods; }
-    if (calories  !== undefined) { updates.push("calories = @calories");   params.calories  = calories; }
-    if (proteinG  !== undefined) { updates.push("protein_g = @proteinG");  params.proteinG  = proteinG; }
-    if (carbsG    !== undefined) { updates.push("carbs_g = @carbsG");      params.carbsG    = carbsG; }
-    if (fatsG     !== undefined) { updates.push("fats_g = @fatsG");        params.fatsG     = fatsG; }
-    if (sortOrder !== undefined) { updates.push("sort_order = @sortOrder");params.sortOrder = sortOrder; }
-
-    if (!updates.length) return badRequest(res, "Nothing to update.");
-    params.id = req.params.mealId;
-    db.prepare(`UPDATE meals SET ${updates.join(", ")} WHERE id = @id`).run(params);
-    ok(res, db.prepare("SELECT * FROM meals WHERE id = ?").get(req.params.mealId));
+    const fields = []; const values = [];
+    if (name      !== undefined) { fields.push("name");       values.push(name); }
+    if (icon      !== undefined) { fields.push("icon");       values.push(icon); }
+    if (foods     !== undefined) { fields.push("foods");      values.push(foods); }
+    if (calories  !== undefined) { fields.push("calories");   values.push(+calories); }
+    if (proteinG  !== undefined) { fields.push("protein_g");  values.push(+proteinG); }
+    if (carbsG    !== undefined) { fields.push("carbs_g");    values.push(+carbsG); }
+    if (fatsG     !== undefined) { fields.push("fats_g");     values.push(+fatsG); }
+    if (sortOrder !== undefined) { fields.push("sort_order"); values.push(+sortOrder); }
+    if (!fields.length) return badRequest(res, "Nothing to update.");
+    values.push(req.params.mealId);
+    const setClauses = fields.map((f, i) => `${f} = $${i+1}`).join(", ");
+    await db.prepare(`UPDATE meals SET ${setClauses} WHERE id = $${fields.length + 1}`).run(values);
+    ok(res, await db.prepare("SELECT * FROM meals WHERE id = ?").get(req.params.mealId));
   } catch (err) {
     serverError(res, err, "PATCH /nutrition/meals/:mealId");
   }
 });
 
 // ─── DELETE /api/nutrition/meals/:mealId ─────────────────────────────────────
-router.delete("/meals/:mealId", auth("coach"), (req, res) => {
+router.delete("/meals/:mealId", auth("coach"), async (req, res) => {
   try {
-    db.prepare("DELETE FROM meals WHERE id = ?").run(req.params.mealId);
+    await db.prepare("DELETE FROM meals WHERE id = ?").run(req.params.mealId);
     ok(res, { deleted: true });
   } catch (err) {
     serverError(res, err, "DELETE /nutrition/meals/:mealId");
@@ -158,7 +155,7 @@ router.delete("/meals/:mealId", auth("coach"), (req, res) => {
 module.exports = router;
 
 // ─── POST /api/nutrition/log — client logs a meal (planned or custom) ─────────
-router.post("/log", auth(), (req, res) => {
+router.post("/log", auth(), async (req, res) => {
   try {
     const { mealId, date, name, calories = 0, proteinG = 0, carbsG = 0, fatsG = 0, isCustom = false, notes } = req.body;
     if (!name || !date) return badRequest(res, "name and date are required.");
@@ -166,7 +163,7 @@ router.post("/log", auth(), (req, res) => {
     const logId = uuid();
     const ts    = new Date().toISOString();
 
-    db.prepare(`
+    await db.prepare(`
       INSERT INTO meal_logs (id, client_id, meal_id, date, name, calories, protein_g, carbs_g, fats_g, is_custom, notes, logged_at)
       VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
     `).run(logId, req.user.userId, mealId || null, date, name, calories, proteinG, carbsG, fatsG, isCustom ? 1 : 0, notes || null, ts);
@@ -176,22 +173,22 @@ router.post("/log", auth(), (req, res) => {
 });
 
 // ─── DELETE /api/nutrition/log/:logId — client removes a log entry ────────────
-router.delete("/log/:logId", auth(), (req, res) => {
+router.delete("/log/:logId", auth(), async (req, res) => {
   try {
-    db.prepare("DELETE FROM meal_logs WHERE id = ? AND client_id = ?").run(req.params.logId, req.user.userId);
+    await db.prepare("DELETE FROM meal_logs WHERE id = ? AND client_id = ?").run(req.params.logId, req.user.userId);
     ok(res, { deleted: true });
   } catch (err) { serverError(res, err, "DELETE /nutrition/log/:logId"); }
 });
 
 // ─── GET /api/nutrition/client/:clientId/logs — get logs for a date ───────────
-router.get("/client/:clientId/logs", auth(), (req, res) => {
+router.get("/client/:clientId/logs", auth(), async (req, res) => {
   try {
     const { date } = req.query;
     let logs;
     if (date) {
-      logs = db.prepare("SELECT * FROM meal_logs WHERE client_id = ? AND date = ? ORDER BY logged_at ASC").all(req.params.clientId, date);
+      logs = await db.prepare("SELECT * FROM meal_logs WHERE client_id = ? AND date = ? ORDER BY logged_at ASC").all(req.params.clientId, date);
     } else {
-      logs = db.prepare("SELECT * FROM meal_logs WHERE client_id = ? ORDER BY logged_at DESC LIMIT 100").all(req.params.clientId);
+      logs = await db.prepare("SELECT * FROM meal_logs WHERE client_id = ? ORDER BY logged_at DESC LIMIT 100").all(req.params.clientId);
     }
     ok(res, logs, { total: logs.length });
   } catch (err) { serverError(res, err, "GET /nutrition/client/:clientId/logs"); }

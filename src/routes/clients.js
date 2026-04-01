@@ -12,17 +12,17 @@ const { enrichClient } = require("../utils/health");
 const { ok, created, badRequest, notFound, conflict, serverError } = require("../utils/respond");
 
 // ─── GET /api/clients ─────────────────────────────────────────────────────────
-router.get("/", auth(), (req, res) => {
+router.get("/", auth(), async (req, res) => {
   try {
     let rows;
     if (req.user.role === "coach") {
-      rows = db.prepare(`
+      rows = await db.prepare(`
         SELECT c.*, u.email, u.full_name
         FROM clients c JOIN users u ON u.id = c.id
         WHERE c.coach_id = ? ORDER BY u.full_name
       `).all(req.user.userId);
     } else {
-      rows = db.prepare(`
+      rows = await db.prepare(`
         SELECT c.*, u.email, u.full_name
         FROM clients c JOIN users u ON u.id = c.id WHERE c.id = ?
       `).all(req.user.userId);
@@ -33,7 +33,7 @@ router.get("/", auth(), (req, res) => {
 });
 
 // ─── POST /api/clients ────────────────────────────────────────────────────────
-router.post("/", auth("coach"), (req, res) => {
+router.post("/", auth("coach"), async (req, res) => {
   try {
     const { email, password = "Client123!", fullName, age, heightCm, weightKg, goal } = req.body;
 
@@ -42,7 +42,7 @@ router.post("/", auth("coach"), (req, res) => {
     const safeGoal = (goal && ["Fat Loss","Muscle Gain","Maintenance"].includes(goal))
       ? goal : "Fat Loss";
 
-    const exists = db.prepare("SELECT id FROM users WHERE email = ?").get(email.toLowerCase().trim());
+    const exists = await db.prepare("SELECT id FROM users WHERE email = ?").get(email.toLowerCase().trim());
     if (exists) return conflict(res, "Email already registered.");
 
     const userId = uuid();
@@ -51,22 +51,22 @@ router.post("/", auth("coach"), (req, res) => {
     const hash   = bcrypt.hashSync(password, 10);
 
     // Insert user row
-    db.prepare(
+    await db.prepare(
       "INSERT INTO users (id, email, password_hash, role, full_name, created_at, updated_at) VALUES (?, ?, ?, 'client', ?, ?, ?)"
     ).run(userId, email.toLowerCase().trim(), hash, fullName, ts, ts);
 
     // Insert client profile row
-    db.prepare(
+    await db.prepare(
       "INSERT INTO clients (id, coach_id, age, height_cm, weight_kg, goal, progress_pct, avatar_initials, created_at, updated_at) VALUES (?, ?, ?, ?, ?, ?, 0, ?, ?, ?)"
     ).run(userId, req.user.userId, age || null, heightCm || null, weightKg || null, safeGoal, avatar, ts, ts);
 
     // Log initial weight
     if (weightKg) {
-      db.prepare("INSERT INTO weight_logs (id, client_id, weight_kg, logged_at) VALUES (?, ?, ?, ?)")
+      await db.prepare("INSERT INTO weight_logs (id, client_id, weight_kg, logged_at) VALUES (?, ?, ?, ?)")
         .run(uuid(), userId, weightKg, ts);
     }
 
-    const newClient = db.prepare(
+    const newClient = await db.prepare(
       "SELECT c.*, u.email, u.full_name FROM clients c JOIN users u ON u.id = c.id WHERE c.id = ?"
     ).get(userId);
 
@@ -75,34 +75,35 @@ router.post("/", auth("coach"), (req, res) => {
 });
 
 // ─── GET /api/clients/:id ─────────────────────────────────────────────────────
-router.get("/:id", auth(), (req, res) => {
+router.get("/:id", auth(), async (req, res) => {
   try {
     const { id } = req.params;
     if (req.user.role === "client" && req.user.userId !== id) return res.status(403).json({ error:"Access denied." });
 
-    const client = db.prepare(
+    const client = await db.prepare(
       "SELECT c.*, u.email, u.full_name FROM clients c JOIN users u ON u.id = c.id WHERE c.id = ?"
     ).get(id);
     if (!client) return notFound(res, "Client");
     if (req.user.role === "coach" && client.coach_id !== req.user.userId) return res.status(403).json({ error:"Access denied." });
 
-    const equipment   = db.prepare("SELECT item FROM equipment WHERE client_id = ?").all(id).map(r => r.item);
-    const medical     = db.prepare("SELECT * FROM medical_records WHERE client_id = ? ORDER BY created_at DESC").all(id);
-    const workoutPlan = db.prepare("SELECT * FROM workout_plans WHERE client_id = ? AND is_active = 1 ORDER BY created_at DESC LIMIT 1").get(id);
-    const nutritionPlan = db.prepare("SELECT * FROM nutrition_plans WHERE client_id = ? AND is_active = 1 ORDER BY created_at DESC LIMIT 1").get(id);
-    const latestWeight  = db.prepare("SELECT * FROM weight_logs WHERE client_id = ? ORDER BY logged_at DESC LIMIT 1").get(id);
+    const equipmentRows = await db.prepare("SELECT item FROM equipment WHERE client_id = ?").all(id);
+    const equipment = equipmentRows.map(r => r.item);
+    const medical     = await db.prepare("SELECT * FROM medical_records WHERE client_id = ? ORDER BY created_at DESC").all(id);
+    const workoutPlan = await db.prepare("SELECT * FROM workout_plans WHERE client_id = ? AND is_active = 1 ORDER BY created_at DESC LIMIT 1").get(id);
+    const nutritionPlan = await db.prepare("SELECT * FROM nutrition_plans WHERE client_id = ? AND is_active = 1 ORDER BY created_at DESC LIMIT 1").get(id);
+    const latestWeight  = await db.prepare("SELECT * FROM weight_logs WHERE client_id = ? ORDER BY logged_at DESC LIMIT 1").get(id);
 
     ok(res, { ...enrichClient(client), equipment, medical, workoutPlan: workoutPlan||null, nutritionPlan: nutritionPlan||null, latestWeight: latestWeight||null });
   } catch (err) { serverError(res, err, "GET /clients/:id"); }
 });
 
 // ─── PATCH /api/clients/:id ───────────────────────────────────────────────────
-router.patch("/:id", auth(), (req, res) => {
+router.patch("/:id", auth(), async (req, res) => {
   try {
     const { id } = req.params;
     if (req.user.role === "client" && req.user.userId !== id) return res.status(403).json({ error:"Access denied." });
 
-    const client = db.prepare("SELECT * FROM clients WHERE id = ?").get(id);
+    const client = await db.prepare("SELECT * FROM clients WHERE id = ?").get(id);
     if (!client) return notFound(res, "Client");
     if (req.user.role === "coach" && client.coach_id !== req.user.userId) return res.status(403).json({ error:"Access denied." });
 
@@ -113,18 +114,18 @@ router.patch("/:id", auth(), (req, res) => {
     updates["updated_at"] = ts;
 
     if (Object.keys(updates).length === 0) return badRequest(res, "No valid fields to update.");
-    const setClauses = Object.keys(updates).map(k => `${k} = @${k}`).join(", ");
-    db.prepare(`UPDATE clients SET ${setClauses} WHERE id = @id`).run({ ...updates, id });
+    const setClauses = Object.keys(updates).map((k, i) => `${k} = $${i + 1}`).join(", ");
+    await db.prepare(`UPDATE clients SET ${setClauses} WHERE id = $${Object.keys(updates).length + 1}`).run([...Object.values(updates), id]);
 
     if (req.body.weight_kg) {
-      db.prepare("INSERT INTO weight_logs (id, client_id, weight_kg, logged_at) VALUES (?, ?, ?, ?)")
+      await db.prepare("INSERT INTO weight_logs (id, client_id, weight_kg, logged_at) VALUES (?, ?, ?, ?)")
         .run(uuid(), id, req.body.weight_kg, ts);
     }
     if (req.body.fullName) {
-      db.prepare("UPDATE users SET full_name = ?, updated_at = ? WHERE id = ?").run(req.body.fullName, ts, id);
+      await db.prepare("UPDATE users SET full_name = ?, updated_at = ? WHERE id = ?").run(req.body.fullName, ts, id);
     }
 
-    const updated = db.prepare(
+    const updated = await db.prepare(
       "SELECT c.*, u.email, u.full_name FROM clients c JOIN users u ON u.id = c.id WHERE c.id = ?"
     ).get(id);
     ok(res, enrichClient(updated));
@@ -132,24 +133,24 @@ router.patch("/:id", auth(), (req, res) => {
 });
 
 // ─── DELETE /api/clients/:id ──────────────────────────────────────────────────
-router.delete("/:id", auth("coach"), (req, res) => {
+router.delete("/:id", auth("coach"), async (req, res) => {
   try {
     const { id } = req.params;
-    const client = db.prepare("SELECT * FROM clients WHERE id = ?").get(id);
+    const client = await db.prepare("SELECT * FROM clients WHERE id = ?").get(id);
     if (!client) return notFound(res, "Client");
     if (client.coach_id !== req.user.userId) return res.status(403).json({ error:"Access denied." });
-    db.prepare("DELETE FROM users WHERE id = ?").run(id);
+    await db.prepare("DELETE FROM users WHERE id = ?").run(id);
     ok(res, { deleted: true, id });
   } catch (err) { serverError(res, err, "DELETE /clients/:id"); }
 });
 
 // ─── GET /api/clients/:id/summary ─────────────────────────────────────────────
-router.get("/:id/summary", auth(), (req, res) => {
+router.get("/:id/summary", auth(), async (req, res) => {
   try {
     const { id } = req.params;
-    const client  = db.prepare("SELECT * FROM clients WHERE id = ?").get(id);
+    const client  = await db.prepare("SELECT * FROM clients WHERE id = ?").get(id);
     if (!client) return notFound(res, "Client");
-    const weights = db.prepare("SELECT weight_kg, logged_at FROM weight_logs WHERE client_id = ? ORDER BY logged_at ASC").all(id);
+    const weights = await db.prepare("SELECT weight_kg, logged_at FROM weight_logs WHERE client_id = ? ORDER BY logged_at ASC").all(id);
     const enriched = enrichClient(client);
     const weightChange = weights.length >= 2
       ? Math.round((weights[weights.length-1].weight_kg - weights[0].weight_kg) * 10) / 10 : 0;
@@ -158,42 +159,42 @@ router.get("/:id/summary", auth(), (req, res) => {
 });
 
 // ─── GET/PUT /api/clients/:id/equipment ───────────────────────────────────────
-router.get("/:id/equipment", auth(), (req, res) => {
+router.get("/:id/equipment", auth(), async (req, res) => {
   try {
-    const items = db.prepare("SELECT item FROM equipment WHERE client_id = ?").all(req.params.id).map(r => r.item);
+    const itemRows = await db.prepare("SELECT item FROM equipment WHERE client_id = ?").all(req.params.id);
+    const items = itemRows.map(r => r.item);
     ok(res, items);
   } catch (err) { serverError(res, err, "GET /clients/:id/equipment"); }
 });
 
-router.put("/:id/equipment", auth(), (req, res) => {
+router.put("/:id/equipment", auth(), async (req, res) => {
   try {
     const { id } = req.params;
     const { items } = req.body;
     if (!Array.isArray(items)) return badRequest(res, "items must be an array.");
-    db.prepare("DELETE FROM equipment WHERE client_id = ?").run(id);
-    const insert = db.prepare("INSERT OR IGNORE INTO equipment (id, client_id, item) VALUES (?, ?, ?)");
-    for (const item of items) insert.run(uuid(), id, item);
+    await db.prepare("DELETE FROM equipment WHERE client_id = ?").run(id);
+    for (const item of items) await db.prepare("INSERT INTO equipment (id, client_id, item) VALUES (?, ?, ?) ON CONFLICT DO NOTHING").run(uuid(), id, item);
     ok(res, items);
   } catch (err) { serverError(res, err, "PUT /clients/:id/equipment"); }
 });
 
 // ─── POST/GET /api/clients/:id/weight ─────────────────────────────────────────
-router.post("/:id/weight", auth(), (req, res) => {
+router.post("/:id/weight", auth(), async (req, res) => {
   try {
     const { id } = req.params;
     const { weightKg, note } = req.body;
     if (!weightKg) return badRequest(res, "weightKg is required.");
     const logId = uuid();
     const ts    = new Date().toISOString();
-    db.prepare("INSERT INTO weight_logs (id, client_id, weight_kg, logged_at, note) VALUES (?, ?, ?, ?, ?)").run(logId, id, weightKg, ts, note||null);
-    db.prepare("UPDATE clients SET weight_kg = ?, updated_at = ? WHERE id = ?").run(weightKg, ts, id);
+    await db.prepare("INSERT INTO weight_logs (id, client_id, weight_kg, logged_at, note) VALUES (?, ?, ?, ?, ?)").run(logId, id, weightKg, ts, note||null);
+    await db.prepare("UPDATE clients SET weight_kg = ?, updated_at = ? WHERE id = ?").run(weightKg, ts, id);
     created(res, { id:logId, client_id:id, weight_kg:weightKg, logged_at:ts, note });
   } catch (err) { serverError(res, err, "POST /clients/:id/weight"); }
 });
 
-router.get("/:id/weight", auth(), (req, res) => {
+router.get("/:id/weight", auth(), async (req, res) => {
   try {
-    const logs = db.prepare("SELECT * FROM weight_logs WHERE client_id = ? ORDER BY logged_at ASC").all(req.params.id);
+    const logs = await db.prepare("SELECT * FROM weight_logs WHERE client_id = ? ORDER BY logged_at ASC").all(req.params.id);
     ok(res, logs, { total: logs.length });
   } catch (err) { serverError(res, err, "GET /clients/:id/weight"); }
 });

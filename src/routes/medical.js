@@ -15,9 +15,9 @@ const db   = require("../db").db;
 const auth = require("../middleware/auth");
 const { ok, created, badRequest, serverError } = require("../utils/respond");
 
-router.get("/:clientId", auth(), (req, res) => {
+router.get("/:clientId", auth(), async (req, res) => {
   try {
-    const records = db.prepare(
+    const records = await db.prepare(
       "SELECT * FROM medical_records WHERE client_id = ? ORDER BY created_at DESC"
     ).all(req.params.clientId);
     ok(res, records, { total: records.length });
@@ -26,7 +26,7 @@ router.get("/:clientId", auth(), (req, res) => {
   }
 });
 
-router.post("/:clientId", auth("coach"), (req, res) => {
+router.post("/:clientId", auth("coach"), async (req, res) => {
   try {
     const { type, text } = req.body;
     if (!type || !text) return badRequest(res, "type and text are required.");
@@ -35,7 +35,7 @@ router.post("/:clientId", auth("coach"), (req, res) => {
     }
     const recId = uuid();
     const ts    = new Date().toISOString();
-    db.prepare(
+    await db.prepare(
       "INSERT INTO medical_records (id, client_id, type, text, created_at) VALUES (?, ?, ?, ?, ?)"
     ).run(recId, req.params.clientId, type, text, ts);
 
@@ -45,24 +45,25 @@ router.post("/:clientId", auth("coach"), (req, res) => {
   }
 });
 
-router.patch("/record/:id", auth("coach"), (req, res) => {
+router.patch("/record/:id", auth("coach"), async (req, res) => {
   try {
     const { type, text } = req.body;
-    const updates = []; const params = {};
-    if (type !== undefined) { updates.push("type = @type"); params.type = type; }
-    if (text !== undefined) { updates.push("text = @text"); params.text = text; }
-    if (!updates.length) return badRequest(res, "Nothing to update.");
-    params.id = req.params.id;
-    db.prepare(`UPDATE medical_records SET ${updates.join(", ")} WHERE id = @id`).run(params);
-    ok(res, db.prepare("SELECT * FROM medical_records WHERE id = ?").get(req.params.id));
+    const fields = []; const values = [];
+    if (type !== undefined) { fields.push("type"); values.push(type); }
+    if (text !== undefined) { fields.push("text"); values.push(text); }
+    if (!fields.length) return badRequest(res, "Nothing to update.");
+    values.push(req.params.id);
+    const setClauses = fields.map((f,i) => `${f} = $${i+1}`).join(", ");
+    await db.prepare(`UPDATE medical_records SET ${setClauses} WHERE id = $${fields.length+1}`).run(values);
+    ok(res, await db.prepare("SELECT * FROM medical_records WHERE id = ?").get(req.params.id));
   } catch (err) {
     serverError(res, err, "PATCH /medical/record/:id");
   }
 });
 
-router.delete("/record/:id", auth("coach"), (req, res) => {
+router.delete("/record/:id", auth("coach"), async (req, res) => {
   try {
-    db.prepare("DELETE FROM medical_records WHERE id = ?").run(req.params.id);
+    await db.prepare("DELETE FROM medical_records WHERE id = ?").run(req.params.id);
     ok(res, { deleted: true });
   } catch (err) {
     serverError(res, err, "DELETE /medical/record/:id");
