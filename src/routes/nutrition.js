@@ -156,3 +156,43 @@ router.delete("/meals/:mealId", auth("coach"), (req, res) => {
 });
 
 module.exports = router;
+
+// ─── POST /api/nutrition/log — client logs a meal (planned or custom) ─────────
+router.post("/log", auth(), (req, res) => {
+  try {
+    const { mealId, date, name, calories = 0, proteinG = 0, carbsG = 0, fatsG = 0, isCustom = false, notes } = req.body;
+    if (!name || !date) return badRequest(res, "name and date are required.");
+
+    const logId = uuid();
+    const ts    = new Date().toISOString();
+
+    db.prepare(`
+      INSERT INTO meal_logs (id, client_id, meal_id, date, name, calories, protein_g, carbs_g, fats_g, is_custom, notes, logged_at)
+      VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+    `).run(logId, req.user.userId, mealId || null, date, name, calories, proteinG, carbsG, fatsG, isCustom ? 1 : 0, notes || null, ts);
+
+    created(res, { id: logId, client_id: req.user.userId, meal_id: mealId, date, name, calories, protein_g: proteinG, carbs_g: carbsG, fats_g: fatsG, is_custom: isCustom, notes, logged_at: ts });
+  } catch (err) { serverError(res, err, "POST /nutrition/log"); }
+});
+
+// ─── DELETE /api/nutrition/log/:logId — client removes a log entry ────────────
+router.delete("/log/:logId", auth(), (req, res) => {
+  try {
+    db.prepare("DELETE FROM meal_logs WHERE id = ? AND client_id = ?").run(req.params.logId, req.user.userId);
+    ok(res, { deleted: true });
+  } catch (err) { serverError(res, err, "DELETE /nutrition/log/:logId"); }
+});
+
+// ─── GET /api/nutrition/client/:clientId/logs — get logs for a date ───────────
+router.get("/client/:clientId/logs", auth(), (req, res) => {
+  try {
+    const { date } = req.query;
+    let logs;
+    if (date) {
+      logs = db.prepare("SELECT * FROM meal_logs WHERE client_id = ? AND date = ? ORDER BY logged_at ASC").all(req.params.clientId, date);
+    } else {
+      logs = db.prepare("SELECT * FROM meal_logs WHERE client_id = ? ORDER BY logged_at DESC LIMIT 100").all(req.params.clientId);
+    }
+    ok(res, logs, { total: logs.length });
+  } catch (err) { serverError(res, err, "GET /nutrition/client/:clientId/logs"); }
+});

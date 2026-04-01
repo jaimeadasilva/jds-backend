@@ -122,7 +122,7 @@ router.post("/plans/:planId/days", auth("coach"), (req, res) => {
 
     db.prepare(
       "INSERT INTO workout_days (id, plan_id, day_label, day_focus, sort_order, week_number) VALUES (?, ?, ?, ?, ?, ?)"
-    ).run(dayId, req.params.planId, dayLabel, dayFocus || null, maxOrder + 1);
+    ).run(dayId, req.params.planId, dayLabel, dayFocus || null, maxOrder + 1, weekNumber);
 
     const day = db.prepare("SELECT * FROM workout_days WHERE id = ?").get(dayId);
     day.exercises = [];
