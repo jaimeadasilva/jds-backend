@@ -152,8 +152,6 @@ router.delete("/meals/:mealId", auth("coach"), async (req, res) => {
   }
 });
 
-module.exports = router;
-
 // ─── POST /api/nutrition/log — client logs a meal (planned or custom) ─────────
 router.post("/log", auth(), async (req, res) => {
   try {
@@ -193,3 +191,5 @@ router.get("/client/:clientId/logs", auth(), async (req, res) => {
     ok(res, logs, { total: logs.length });
   } catch (err) { serverError(res, err, "GET /nutrition/client/:clientId/logs"); }
 });
+
+module.exports = router;

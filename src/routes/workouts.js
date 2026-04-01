@@ -256,8 +256,6 @@ router.get("/client/:clientId/logs", auth(), async (req, res) => {
   }
 });
 
-module.exports = router;
-
 // ─── GET /api/workouts/coach/:coachId/activity ────────────────────────────────
 // Returns recent exercise completions across all coach's clients
 router.get("/coach/:coachId/activity", auth("coach"), async (req, res) => {
@@ -281,3 +279,5 @@ router.get("/coach/:coachId/activity", auth("coach"), async (req, res) => {
     ok(res, rows, { total: rows.length });
   } catch (err) { serverError(res, err, "GET /workouts/coach/:coachId/activity"); }
 });
+
+module.exports = router;
