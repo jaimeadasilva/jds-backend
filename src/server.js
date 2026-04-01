@@ -248,6 +248,13 @@ async function seedIfEmpty() {
 }
 
 // ─── Startup ──────────────────────────────────────────────────────────────────
+if (!process.env.DATABASE_URL) {
+  console.error('❌  DATABASE_URL is not set.');
+  console.error('    Add a PostgreSQL database in Railway:');
+  console.error('    Dashboard → + New → Database → PostgreSQL');
+  process.exit(1);
+}
+
 initDb().then(async () => {
   await migrate();
   await seedIfEmpty();
